@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Target Selection</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+        }
+    </style>
+</head>
+<body>
+<h1>Target Selection</h1>
+<canvas id="canvas" width="640" height="480"></canvas>
+<br>
+<button id="select-button">绘制目标</button>
+<button id="track-button">跟踪目标</button>
+<button id="stop-button">停止跟踪</button>
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    let rect = {x: 0, y: 0, width: 0, height: 0};
+    let target = null;
+    let isDragging = false;
+
+    // 每秒更新一次图像
+    var intervalId = null;
+    intervalId = setInterval(function () {
+        img.src = '/video_feed';
+    }, 10);
+
+    canvas.addEventListener('mousedown', function (event) {
+        rect.x = event.offsetX;
+        rect.y = event.offsetY;
+        isDragging = true;
+    });
+
+    canvas.addEventListener('mousemove', function (event) {
+        if (isDragging) {
+            rect.width = event.offsetX - rect.x;
+            rect.height = event.offsetY - rect.y;
+            draw();
+        }
+    });
+
+    canvas.addEventListener('mouseup', function (event) {
+        isDragging = false;
+    });
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        ctx.strokeStyle = 'green';
+        ctx.lineWidth = 2;
+        if (rect.width && rect.height) {
+            ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+            console.log(rect.x, rect.y, rect.width, rect.height)
+
+        }
+    }
+
+    const img = new Image();
+    img.onload = function () {
+        draw();
+    };
+
+    var selectButton = document.getElementById('select-button');
+    selectButton.addEventListener('click', function (event) {
+        if (target) {
+            // 如果目标已经存在，那么点击按钮表示取消目标
+            target = null;
+        } else {
+            // 如果目标不存在，那么点击按钮表示选择目标
+            clearInterval(intervalId);
+            target = {
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height
+            };
+            draw();
+        }
+    });
+
+    const trackButton = document.getElementById('track-button');
+    trackButton.addEventListener('click', function (event) {
+        // 如果没有选择目标，那么不能进行跟踪
+        if (!target) {
+            alert('请先选择目标');
+            fetch('/SetCamera', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    address: 'your_isc_platform_address',
+                    port: 'your_isc_platform_port',
+                    appkey: 'your_isc_platform_appkey',
+                    secret: 'your_isc_platform_secret',
+                    id: 'your_camera_unique_id'
+                })
+            })
+                .then(response => response.text())
+                .then(data => {
+                    console.log(data);
+                })
+                .catch(error => {
+                    console.error(error);
+                });
+
+            return;
+        }
+        // TODO: 添加目标跟踪代码
+    });
+
+</script>
+</body>
+</html>
