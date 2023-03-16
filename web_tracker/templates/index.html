@@ -24,7 +24,7 @@
     let isDragging = false;
 
     // 每秒更新一次图像
-    var intervalId = null;
+    let intervalId = null;
     intervalId = setInterval(function () {
         img.src = '/video_feed';
     }, 10);
@@ -54,8 +54,6 @@
         ctx.lineWidth = 2;
         if (rect.width && rect.height) {
             ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-            console.log(rect.x, rect.y, rect.width, rect.height)
-
         }
     }
 
@@ -64,55 +62,73 @@
         draw();
     };
 
-    var selectButton = document.getElementById('select-button');
+    const selectButton = document.getElementById('select-button');
     selectButton.addEventListener('click', function (event) {
-        if (target) {
-            // 如果目标已经存在，那么点击按钮表示取消目标
-            target = null;
-        } else {
-            // 如果目标不存在，那么点击按钮表示选择目标
-            clearInterval(intervalId);
-            target = {
-                x: rect.x,
-                y: rect.y,
-                width: rect.width,
-                height: rect.height
-            };
-            draw();
-        }
+        clearInterval(intervalId);
+        draw();
+    });
+    const stopButton = document.getElementById('stop-button');
+    stopButton.addEventListener('click', function (event) {
+        fetch('/StopTracking')
+            .then(response => response.json())
+            .then(data => console.log(data))
+            .catch(error => console.error(error));
     });
 
     const trackButton = document.getElementById('track-button');
     trackButton.addEventListener('click', function (event) {
         // 如果没有选择目标，那么不能进行跟踪
-        if (!target) {
-            alert('请先选择目标');
-            fetch('/SetCamera', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    address: 'your_isc_platform_address',
-                    port: 'your_isc_platform_port',
-                    appkey: 'your_isc_platform_appkey',
-                    secret: 'your_isc_platform_secret',
-                    id: 'your_camera_unique_id'
-                })
+        target = {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height
+        };
+        console.log(target)
+        fetch('/StartTracking', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({init_rect: target})
+        })
+            .then(response => response.text())
+            .then(data => {
+                rect = {x: 0, y: 0, width: 0, height: 0};
+                console.log(data);
             })
-                .then(response => response.text())
-                .then(data => {
-                    console.log(data);
-                })
-                .catch(error => {
-                    console.error(error);
-                });
-
-            return;
-        }
+            .catch(error => {
+                console.error(error);
+            });
+        // 每隔一段时间获取当前图像并显示在页面上
+        intervalId = setInterval(function () {
+            img.src = '/video_feed';
+        }, 10);
         // TODO: 添加目标跟踪代码
     });
 
+    function SetCamera(IscHost, IscPort, Appkey, Secret, CameraIndexCode) {
+        fetch('/SetCamera', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                address: IscHost,
+                port: IscPort,
+                appkey: Appkey,
+                secret: Secret,
+                id: CameraIndexCode
+            })
+        })
+            .then(response => response.text())
+            .then(data => {
+                console.log(data);
+            })
+            .catch(error => {
+                console.error(error);
+            });
+    }
 </script>
 </body>
 </html>

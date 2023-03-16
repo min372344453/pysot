@@ -48,9 +48,9 @@ class HikvisionAPI:
         response = requests.post(uri + self.headers_url, data=json.dumps(self.data), headers=headers, verify=False)
         return json.loads(response.text)
 
-#
-# # 禁用警告
-# urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# 禁用警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # data={
 #     "pageNo": 1,
 #     "pageSize":2
