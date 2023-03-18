@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Target Selection</title>
+    <title>目标跟踪</title>
     <style>
         canvas {
             border: 1px solid black;
@@ -10,24 +10,20 @@
     </style>
 </head>
 <body>
-<h1>Target Selection</h1>
 <canvas id="canvas" width="640" height="480"></canvas>
 <br>
-<button id="select-button">绘制目标</button>
 <button id="track-button">跟踪目标</button>
 <button id="stop-button">停止跟踪</button>
+<button id="stop-video">停止播放</button>
 <script>
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     let rect = {x: 0, y: 0, width: 0, height: 0};
     let target = null;
     let isDragging = false;
-
     // 每秒更新一次图像
     let intervalId = null;
-    intervalId = setInterval(function () {
-        img.src = '/video_feed';
-    }, 10);
+
 
     canvas.addEventListener('mousedown', function (event) {
         rect.x = event.offsetX;
@@ -61,17 +57,27 @@
     img.onload = function () {
         draw();
     };
-
-    const selectButton = document.getElementById('select-button');
-    selectButton.addEventListener('click', function (event) {
-        clearInterval(intervalId);
-        draw();
+    const stopVideo = document.getElementById('stop-video');
+    stopVideo.addEventListener('click', function (event) {
+        fetch('/StopPlay')
+            .then(response => response.json())
+            .then(data => {
+                ctx.fillStyle = 'red';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                // ctx.clearRect(0, 0, canvas.width, canvas.height);
+                console.log(data)
+            })
+            .catch(error => console.error(error));
     });
+
     const stopButton = document.getElementById('stop-button');
     stopButton.addEventListener('click', function (event) {
         fetch('/StopTracking')
             .then(response => response.json())
-            .then(data => console.log(data))
+            .then(data => {
+
+                console.log(data)
+            })
             .catch(error => console.error(error));
     });
 
@@ -84,7 +90,22 @@
             width: rect.width,
             height: rect.height
         };
-        console.log(target)
+        let selZoom = {startX: rect.x, startY: rect.y, endX: rect.x + rect.width, endY: rect.y + rect.height}
+        fetch('/SetDisplaySize', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({selZoom: selZoom})
+        })
+            .then(response => response.text())
+            .then(data => {
+
+                console.log(data);
+            })
+            .catch(error => {
+                console.error(error);
+            });
         fetch('/StartTracking', {
             method: 'POST',
             headers: {
@@ -103,9 +124,11 @@
         // 每隔一段时间获取当前图像并显示在页面上
         intervalId = setInterval(function () {
             img.src = '/video_feed';
-        }, 10);
+        }, 5);
         // TODO: 添加目标跟踪代码
     });
+
+    SetCamera("192.168.0.96", "443", "26324374", "Ai2HjDzjn2rtyPzRQRqg", "e57f2bfacb0c4ef793279e9aabc8b3c1")
 
     function SetCamera(IscHost, IscPort, Appkey, Secret, CameraIndexCode) {
         fetch('/SetCamera', {
@@ -114,8 +137,7 @@
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                address: IscHost,
-                port: IscPort,
+                address: IscHost + ":" + IscPort,
                 appkey: Appkey,
                 secret: Secret,
                 id: CameraIndexCode
@@ -123,6 +145,10 @@
         })
             .then(response => response.text())
             .then(data => {
+
+                intervalId = setInterval(function () {
+                    img.src = '/video_feed';
+                }, 5);
                 console.log(data);
             })
             .catch(error => {

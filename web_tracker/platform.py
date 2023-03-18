@@ -7,6 +7,9 @@ import time
 import requests
 import urllib3
 
+# 禁用警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 
 class HikvisionAPI:
     def __init__(self, uapi, appKey, appSecret, headers_url, data):
@@ -45,27 +48,25 @@ class HikvisionAPI:
         self.load_config()
         headers = self.get_headers()
         uri = self.uapi
-        response = requests.post(uri + self.headers_url, data=json.dumps(self.data), headers=headers, verify=False)
+        print(uri, headers, self.data)
+        response = requests.post('https://'+uri + self.headers_url, data=json.dumps(self.data), headers=headers, verify=False)
         return json.loads(response.text)
 
-
-# 禁用警告
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # data={
 #     "pageNo": 1,
 #     "pageSize":2
 # }
 # previewURLs = {
-#     "cameraIndexCode": "905a90385ff44746bfc3ec52998ef4fc",
+#     "cameraIndexCode": "e57f2bfacb0c4ef793279e9aabc8b3c1",
 #     "streamType": 1,
 #     "protocol": "rtsp",
 #     "transmode": 1,
 #     "expand": "streamform=rtp"
 # }
 # # 查询rtsp流
-# previewURLs = HikvisionAPI(uapi='https://119.7.8.7:1443',
-#                            appKey='25611509',
-#                            appSecret='FznvFpw7DthckHQci18G',
+# previewURLs = HikvisionAPI(uapi='https://192.168.0.96:443',
+#                            appKey='26324374',
+#                            appSecret='Ai2HjDzjn2rtyPzRQRqg',
 #                            headers_url="/artemis/api/video/v1/cameras/previewURLs",
 #                            data=previewURLs)
 #
@@ -97,7 +98,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 #                        headers_url="/artemis/api/video/v1/ptzs/selZoom",
 #                        data=selZoom)
 #
-# # 发出API请求并打印响应结果
+# 发出API请求并打印响应结果
 # res = previewURLs.request()
 # data_url_ = res['data']['url']
 # print(data_url_)

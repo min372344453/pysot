@@ -7,9 +7,7 @@ from flask import Flask, render_template, Response, request
 from pysot.core.config import cfg
 from pysot.models.model_builder import ModelBuilder
 from pysot.tracker.tracker_builder import build_tracker
-
-
-# from web_tracker.platform import HikvisionAPI
+from web_tracker.platform import HikvisionAPI
 
 
 class VideoStreamer:
@@ -28,6 +26,8 @@ class VideoStreamer:
         self.init_rect = None
         self.img_array = None
         self.last_rect = None
+        self.previous = None
+        self.StopPlay = True
 
     def _load_config(self):
         cfg.merge_from_file(self.config_file)
@@ -56,9 +56,27 @@ class VideoStreamer:
         def SetDisplaySize():
             data = request.get_data()
             data = json.loads(data)
-            width = data['width']
-            height = data['height']
-            print(width, height)
+            print(data)
+            startX = data['selZoom']['startX']
+            startY = data['selZoom']['startY']
+            endX = data['selZoom']['endX']
+            endY = data['selZoom']['endY']
+            selZoom = {
+                "cameraIndexCode": "e57f2bfacb0c4ef793279e9aabc8b3c1",
+                "startX": startX / 2.67,
+                "startY": startY / 1.76,
+                "endX": endX / 2.67,
+                "endY": endY / 1.76
+            }
+            # 聚焦
+            selZoom = HikvisionAPI(uapi='192.168.0.96:443',
+                                   appKey='26324374',
+                                   appSecret='Ai2HjDzjn2rtyPzRQRqg',
+                                   headers_url="/artemis/api/video/v1/ptzs/selZoom",
+                                   data=selZoom)
+            zoom_request = selZoom.request()
+            if zoom_request.get('code') == '0':
+                return "Success"
 
         @self.app.route('/StartTracking', methods=['POST'])
         def StartTracking():
@@ -72,22 +90,38 @@ class VideoStreamer:
         @self.app.route('/StopTracking')
         def StopTracking():
             self.init_rect = None
-            return "停止跟踪"
+            # 控制摄像头移动
+            controlling = {
+                "cameraIndexCode": "e57f2bfacb0c4ef793279e9aabc8b3c1",
+                "action": 0,
+                "command": "GOTO_PRESET",
+                "speed": 4,
+                "presetIndex": 1
+            }
+
+            # 发送控制命令
+            controlling_api = HikvisionAPI(uapi='192.168.0.96:443',
+                                           appKey='26324374',
+                                           appSecret='Ai2HjDzjn2rtyPzRQRqg',
+                                           headers_url="/artemis/api/video/v1/ptzs/controlling",
+                                           data=controlling)
+            request = controlling_api.request()
+            return "Success"
 
         @self.app.route('/StopPlay')
         def StopPlay():
+            self.StopPlay = False
             print("停止播放")
+            return "Success"
 
         @self.app.route('/SetCamera', methods=['POST'])
         def SetCamera():
             data = request.get_data()
             data = json.loads(data)
             address = data['address']
-            port = data['port']
             appkey = data['appkey']
             secret = data['secret']
             id = data['id']
-
             previewURLs = {
                 "cameraIndexCode": id,
                 "streamType": 1,
@@ -95,114 +129,142 @@ class VideoStreamer:
                 "transmode": 1,
                 "expand": "streamform=rtp"
             }
-            # previewURLs = HikvisionAPI(uapi='https//' + address + ':' + port,
-            #                            appKey=appkey,
-            #                            appSecret=secret,
-            #                            headers_url="/artemis/api/video/v1/cameras/previewURLs",
-            #                            data=previewURLs)
-            # previewURLs = previewURLs.request()
-            # previewURLs = previewURLs['data']['url']
-            # self.rtsp_url = previewURLs
+            res = HikvisionAPI(uapi=address,
+                               appKey=appkey,
+                               appSecret=secret,
+                               headers_url="/artemis/api/video/v1/cameras/previewURLs",
+                               data=previewURLs)
+            data = res.request()
+            data = data['data']['url']
+            self.rtsp_url = data
 
-    def get_direction(self, target_x, target_y, target_width, target_height):
-        # 计算屏幕中心点坐标
-        screen_width = 680
-        screen_height = 480
-        screen_center_x = screen_width / 2
-        screen_center_y = screen_height / 2
+            return "Success"
 
-        # 计算目标框中心点坐标
-        target_center_x = target_x + target_width / 2
-        target_center_y = target_y + target_height / 2
+    # 获取目标在屏幕中心时的坐标
+    def get_center_coordinate(self, target_coordinate, screen_size):
+        screen_width, screen_height = screen_size
+        target_x, target_y = target_coordinate
+        center_x = screen_width / 2
+        center_y = screen_height / 2
+        delta_x = target_x - center_x
+        delta_y = target_y - center_y
+        return delta_x, delta_y
 
-        # 计算目标框中心点与屏幕中心点的水平距离和垂直距离
-        dx = target_center_x - screen_center_x
-        dy = target_center_y - screen_center_y
+    # 控制摄像头移动到保持目标在屏幕中心
+    def move_camera_to_center(self, target_coordinate, screen_size):
+        # 获取目标在屏幕中心时的坐标
+        delta_x, delta_y = self.get_center_coordinate(target_coordinate, screen_size)
 
-        # 如果水平距离和垂直距离均为0，则目标框已经在屏幕中心，无需移动
-        if dx == 0 and dy == 0:
-            return None
-
-        # 如果水平距离为0，垂直距离不为0，则目标框需要向上或向下移动
-        if dx == 0:
-            if dy < 0:
-                print('x向上移动')
-                return 'up'
+        # 控制摄像头移动
+        controlling = {
+            "cameraIndexCode": "e57f2bfacb0c4ef793279e9aabc8b3c1",
+            "action": 0,
+            "command": "",
+            "speed": 4,
+            "presetIndex": 0
+        }
+        if delta_x < 0 and abs(delta_x) > abs(delta_y):
+            controlling["command"] = "LEFT"
+            if self.previous != controlling["command"]:
+                self.previous = controlling["command"]
             else:
-                print('x下移动')
-                return 'down'
-        # 如果垂直距离为0，水平距离不为0，则目标框需要向左或向右移动
-        if dy == 0:
-            if dx < 0:
-                print("y左移动")
-                return 'left'
+                return
+        elif delta_x > 0 and abs(delta_x) > abs(delta_y):
+            controlling["command"] = "RIGHT"
+            if self.previous != controlling["command"]:
+                self.previous = controlling["command"]
             else:
-                print("y右移动")
-                return 'right'
-
-        # 如果水平距离和垂直距离均不为0，则目标框需要向水平和垂直距离更短的方向移动
-        if abs(dx) > abs(dy):
-            if dx < 0:
-                print("不为0 y左移动")
-                return 'left'
+                return
+        elif delta_y < 0 and abs(delta_y) > abs(delta_x):
+            controlling["command"] = "UP"
+            if self.previous != controlling["command"]:
+                self.previous = controlling["command"]
             else:
-                print("不为0 y右移动")
-                return 'right'
+                return
+        elif delta_y > 0 and abs(delta_y) > abs(delta_x):
+            controlling["command"] = "DOWN"
+            if self.previous != controlling["command"]:
+                self.previous = controlling["command"]
+            else:
+                return
         else:
-            if dy < 0:
-                print("不为0 上移动")
-                return 'up'
-            else:
-                print("不为0 下移动")
-                return 'down'
+            print("执行了")
+            self.previous = controlling["command"]
+            self.previous = controlling["action"] = 1
+
+        # 调整速度和预置位
+        controlling["speed"] = 10
+        controlling["presetIndex"] = 0
+
+        # 发送控制命令
+        controlling_api = HikvisionAPI(uapi='192.168.0.96:443',
+                                       appKey='26324374',
+                                       appSecret='Ai2HjDzjn2rtyPzRQRqg',
+                                       headers_url="/artemis/api/video/v1/ptzs/controlling",
+                                       data=controlling)
+        request = controlling_api.request()
+        if request.get('code') == '0':
+            print('Success!')
+        else:
+            print(request.get('msg'))
 
     def get_frame(self):
         # 从默认摄像头捕获视频
 
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(self.rtsp_url)
         while True:
             # 从视频流中读取一帧
-            ret, frame = cap.read()
+            if self.StopPlay:
+                ret, frame = cap.read()
 
-            if not ret:
-                break
+                if not ret and self.StopPlay:
+                    break
 
-            # 缩小图像以提高性能
-            frame = cv2.resize(frame, (680, 480), fx=0.5, fy=0.5)
-            # 判断是否绘制目标
-            if self.init_rect is None:
-                # 没有绘制目标
-                # 将图像转换为字符串
-                img_str = cv2.imencode('.jpg', frame)[1].tobytes()
-
-                # 产生图像字节作为响应
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + img_str + b'\r\n')
-            # 绘制目标
-            else:
-                # 判断和上一个目标不一样
-                if self.init_rect != self.last_rect:
-                    # 不一样初始化跟踪器
-                    self.tracker.init(frame, self.init_rect)
-                    # 记录这一次目标坐标
-                    self.last_rect = self.init_rect
-                else:
-                    # 和上一个目标一样绘制目标
-                    outputs = self.tracker.track(frame)
-                    bbox = list(map(int, outputs['bbox']))
-                    self.get_direction(bbox[0], bbox[1], bbox[2], bbox[3])
-                    cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 0), 1, 1)
+                # 缩小图像以提高性能
+                frame = cv2.resize(frame, (680, 480), fx=0.5, fy=0.5)
+                # 判断是否绘制目标
+                if self.init_rect is None:
+                    # 没有绘制目标
                     # 将图像转换为字符串
                     img_str = cv2.imencode('.jpg', frame)[1].tobytes()
+
                     # 产生图像字节作为响应
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + img_str + b'\r\n')
+                # 绘制目标
+                else:
+                    # 判断和上一个目标不一样
+                    if self.init_rect != self.last_rect:
+                        # 不一样初始化跟踪器
+                        self.tracker.init(frame, self.init_rect)
+                        # 记录这一次目标坐标
+                        self.last_rect = self.init_rect
+                    else:
+                        # 和上一个目标一样绘制目标
+                        outputs = self.tracker.track(frame)
+                        bbox = list(map(int, outputs['bbox']))
+                        # 模拟获取目标坐标和屏幕尺寸
+                        target_coordinate = (bbox[0] + bbox[2] / 2, bbox[1] + bbox[3] / 2)
+                        screen_size = (680, 480)
+
+                        # 移动摄像头到保持目标在屏幕中心
+                        self.move_camera_to_center(target_coordinate, screen_size)
+
+                        cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 0), 1,1)
+                        # 将图像转换为字符串
+                        img_str = cv2.imencode('.jpg', frame)[1].tobytes()
+                        # 产生图像字节作为响应
+                        yield (b'--frame\r\n'
+                               b'Content-Type: image/jpeg\r\n\r\n' + img_str + b'\r\n')
+            else:
+                self.StopPlay = True
+                break
 
     def run(self):
         self.app.run(debug=True)
 
 
 if __name__ == '__main__':
-    tracker = VideoStreamer("D:/Projects/python/pysot/experiments/siamrpn_alex_dwxcorr/config.yaml",
-                            "D:/Projects/python/pysot/experiments/siamrpn_alex_dwxcorr/model.pth")
+    tracker = VideoStreamer("../experiments/siamrpn_alex_dwxcorr/config.yaml",
+                            "../experiments/siamrpn_alex_dwxcorr/model.pth")
     tracker.run()
