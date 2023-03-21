@@ -10,7 +10,7 @@
     </style>
 </head>
 <body>
-<canvas id="canvas" width="640" height="480"></canvas>
+<canvas id="canvas" width="1280" height="720"></canvas>
 <br>
 <button id="track-button">跟踪目标</button>
 <button id="stop-button">停止跟踪</button>
@@ -45,7 +45,7 @@
 
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         ctx.strokeStyle = 'green';
         ctx.lineWidth = 2;
         if (rect.width && rect.height) {
@@ -75,7 +75,6 @@
         fetch('/StopTracking')
             .then(response => response.json())
             .then(data => {
-
                 console.log(data)
             })
             .catch(error => console.error(error));
@@ -90,22 +89,22 @@
             width: rect.width,
             height: rect.height
         };
-        let selZoom = {startX: rect.x, startY: rect.y, endX: rect.x + rect.width, endY: rect.y + rect.height}
-        fetch('/SetDisplaySize', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({selZoom: selZoom})
-        })
-            .then(response => response.text())
-            .then(data => {
-
-                console.log(data);
-            })
-            .catch(error => {
-                console.error(error);
-            });
+        // let selZoom = {startX: rect.x, startY: rect.y, endX: rect.x + rect.width, endY: rect.y + rect.height}
+        // fetch('/SetDisplaySize', {
+        //     method: 'POST',
+        //     headers: {
+        //         'Content-Type': 'application/json'
+        //     },
+        //     body: JSON.stringify({selZoom: selZoom})
+        // })
+        //     .then(response => response.text())
+        //     .then(data => {
+        //
+        //         console.log(data);
+        //     })
+        //     .catch(error => {
+        //         console.error(error);
+        //     });
         fetch('/StartTracking', {
             method: 'POST',
             headers: {
@@ -124,11 +123,11 @@
         // 每隔一段时间获取当前图像并显示在页面上
         intervalId = setInterval(function () {
             img.src = '/video_feed';
-        }, 5);
+        }, 100);
         // TODO: 添加目标跟踪代码
     });
 
-    SetCamera("192.168.0.96", "443", "26324374", "Ai2HjDzjn2rtyPzRQRqg", "e57f2bfacb0c4ef793279e9aabc8b3c1")
+    SetCamera("119.7.8.7", "1443", "25611509", "FznvFpw7DthckHQci18G", "e57f2bfacb0c4ef793279e9aabc8b3c1")
 
     function SetCamera(IscHost, IscPort, Appkey, Secret, CameraIndexCode) {
         fetch('/SetCamera', {
@@ -148,7 +147,7 @@
 
                 intervalId = setInterval(function () {
                     img.src = '/video_feed';
-                }, 5);
+                }, 100);
                 console.log(data);
             })
             .catch(error => {
