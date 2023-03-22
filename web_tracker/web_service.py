@@ -1,15 +1,16 @@
 import json
+import math
 import queue
 import threading
 
 import cv2
 import torch
 from flask import Flask, render_template, Response, request
-from web_tracker.platform import HikvisionAPI
 
 from pysot.core.config import cfg
 from pysot.models.model_builder import ModelBuilder
 from pysot.tracker.tracker_builder import build_tracker
+from web_tracker.platform import HikvisionAPI
 
 
 class VideoStreamer:
@@ -41,6 +42,7 @@ class VideoStreamer:
         self.tracker = None
         self.cap_thread = None
         self.process_thread = None
+        self.sign = 1
 
     def _load_config(self):
         cfg.merge_from_file(self.config_file)
@@ -196,7 +198,7 @@ class VideoStreamer:
         # 控制摄像头移动
         controlling = {
             "cameraIndexCode": self.cameraIndexCode,
-            "action": 1,
+            "action": 0,
             "command": "",
             "speed": 4,
             "presetIndex": 0
@@ -264,7 +266,7 @@ class VideoStreamer:
                 break
 
             # 将图像大小调整为较小的尺寸
-            frame = cv2.resize(frame, (680, 480), fx=0.5, fy=0.5)
+            frame = cv2.resize(frame, (1280, 720), fx=0.1, fy=0.1)
 
             # 将帧添加到处理队列
             self.frame_queue.put(frame)
@@ -293,18 +295,52 @@ class VideoStreamer:
                     # 绘制目标框
                     self.matching(frame)
 
+
+
     def matching(self, frame):
         outputs = self.tracker.track(frame)
         bbox = list(map(int, outputs['bbox']))
         cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 0), 2)
         result = (frame, bbox)
         self.result_queue.put(result)
+        # 模拟获取目标坐标和屏幕尺寸
+        target_coordinate = (bbox[0] + bbox[2] / 2, bbox[1] + bbox[3] / 2)
+        screen_size = (1280, 720)
+
+        # 移动摄像头到保持目标在屏幕中心
+        self.move_camera_to_center(target_coordinate, screen_size)
+
+        # if self.sign == 30:
+        #     wide = 680 / 255
+        #     high = 480 / 255
+        #     startX = math.floor(bbox[0] / wide)
+        #     startY = math.floor(bbox[1] / high)
+        #     endX = math.floor(bbox[2] / wide)
+        #     endY = math.floor(bbox[3] / high)
+        #     print(bbox[0], bbox[1], bbox[2], bbox[3])
+        #     print(startX, startY, endX, endY)
+        #     selZoom = {
+        #         "cameraIndexCode": "40f37bb1118049f6b3925cd2c31543ba",
+        #         "startX": startX,
+        #         "startY": startY,
+        #         "endX": startX + endX,
+        #         "endY": startY + endY
+        #     }
+        #     # 聚焦
+        #     selZoom = HikvisionAPI(uapi='192.168.0.96:443',
+        #                            appKey="26324374",
+        #                            appSecret="Ai2HjDzjn2rtyPzRQRqg",
+        #                            headers_url="/artemis/api/video/v1/ptzs/selZoom",
+        #                            data=selZoom)
+        #     zoom_request = selZoom.request()
+        #     self.sign = 0
+        # self.sign += 1
+        # print(self.sign)
 
     def get_frame(self):
         while True:
             # 从结果队列中获取结果
             frame, bbox = self.result_queue.get()
-            print("get_frame", frame)
             # 将帧转换为 JPEG 编码的字节字符串
             ret, jpeg = cv2.imencode('.jpg', frame)
             data = jpeg.tobytes()
