@@ -359,6 +359,6 @@ class VideoStreamer:
 if __name__ == '__main__':
     current_path = os.getcwd()
     print(current_path)
-    tracker = VideoStreamer("../experiments/siamrpn_alex_dwxcorr/config.yaml",
-                            "../experiments/siamrpn_alex_dwxcorr/model.pth")
+    tracker = VideoStreamer(current_path + "\siamrpn_alex_dwxcorr\config.yaml",
+                            current_path + "\siamrpn_alex_dwxcorr\model.pth")
     tracker.run()
