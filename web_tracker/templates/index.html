@@ -176,6 +176,22 @@
                 console.error(error);
             });
     }
+    window.onbeforeunload = function () {
+        fetch('/StopTracking')
+            .then(response => response.json())
+            .then(data => {
+                console.log(data)
+            })
+            .catch(error => console.error(error));
+        fetch('/StopPlay')
+            .then(response => response.json())
+            .then(data => {
+                ctx.fillStyle = 'red';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                console.log(data)
+            })
+            .catch(error => console.error(error));
+    };
 </script>
 </body>
 </html>

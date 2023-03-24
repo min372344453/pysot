@@ -1,5 +1,5 @@
 import json
-import math
+import os
 import queue
 import threading
 
@@ -7,10 +7,10 @@ import cv2
 import torch
 from flask import Flask, render_template, Response, request
 
+import HikvisionAPI
 from pysot.core.config import cfg
 from pysot.models.model_builder import ModelBuilder
 from pysot.tracker.tracker_builder import build_tracker
-from web_tracker.platform import HikvisionAPI
 
 
 class VideoStreamer:
@@ -90,7 +90,9 @@ class VideoStreamer:
                                    data=selZoom)
             zoom_request = selZoom.request()
             if zoom_request.get('code') == '0':
-                return "Success"
+                return 'Success'
+            else:
+                return request.get('msg')
 
         @self.app.route('/StartTracking', methods=['POST'])
         def StartTracking():
@@ -99,7 +101,7 @@ class VideoStreamer:
             print(data['init_rect'])
             # 设置跟踪目标
             self.init_rect = list(data['init_rect'].values())
-            return "跟踪成功"
+            return "Success"
 
         @self.app.route('/StopTracking')
         def StopTracking():
@@ -107,7 +109,7 @@ class VideoStreamer:
             # 控制摄像头移动
             controlling = {
                 "cameraIndexCode": self.cameraIndexCode,
-                "action": 0,
+                "action": 1,
                 "command": "GOTO_PRESET",
                 "speed": 4,
                 "presetIndex": 1
@@ -120,7 +122,10 @@ class VideoStreamer:
                                            headers_url="/artemis/api/video/v1/ptzs/controlling",
                                            data=controlling)
             request = controlling_api.request()
-            return "Success"
+            if request.get('code') == '0':
+                return 'Success'
+            else:
+                return request.get('msg')
 
         @self.app.route('/StopPlay')
         def StopPlay():
@@ -131,13 +136,11 @@ class VideoStreamer:
             # self.cap_thread.join()
 
             # 向捕获线程发出停止信号并等待其加入
-            self.StopPlay  # 向处理线程发出停止并等待其加入的信号
+            # 向处理线程发出停止并等待其加入的信号
 
             # 清除处理和结果队列
             self.frame_queue.queue.clear()
             self.result_queue.queue.clear()
-            print("停止播放")
-
             return "Success"
 
         @self.app.route('/SetCamera', methods=['POST'])
@@ -162,9 +165,9 @@ class VideoStreamer:
                                headers_url="/artemis/api/video/v1/cameras/previewURLs",
                                data=previewURLs)
             data = res.request()
-            print(data)
-            data = data['data']['url']
-            self.rtsp_url = data
+
+            rtsp_url = data['data']['url']
+            self.rtsp_url = rtsp_url
             #  启动视频捕获和帧处理线程
             if self.cap_thread is None and self.process_thread is None:
                 self.StopPlay = True
@@ -172,7 +175,10 @@ class VideoStreamer:
                 self.process_thread = threading.Thread(target=self._process_loop)
                 self.cap_thread.start()
                 self.process_thread.start()
-            return "Success"
+            if data.get('code') == '0':
+                return 'Success'
+            else:
+                return data.get('msg')
 
     # 获取目标在屏幕中心时的坐标
     def get_center_coordinate(self, target_coordinate, screen_size):
@@ -251,9 +257,9 @@ class VideoStreamer:
         request = controlling_api.request()
 
         if request.get('code') == '0':
-            print('Success!')
+            return 'Success'
         else:
-            print(request.get('msg'))
+            return request.get('msg')
 
     def _capture_loop(self):
         # 初始化循环外的视频捕获对象
@@ -294,8 +300,6 @@ class VideoStreamer:
                 else:
                     # 绘制目标框
                     self.matching(frame)
-
-
 
     def matching(self, frame):
         outputs = self.tracker.track(frame)
@@ -353,6 +357,8 @@ class VideoStreamer:
 
 
 if __name__ == '__main__':
+    current_path = os.getcwd()
+    print(current_path)
     tracker = VideoStreamer("../experiments/siamrpn_alex_dwxcorr/config.yaml",
                             "../experiments/siamrpn_alex_dwxcorr/model.pth")
     tracker.run()
