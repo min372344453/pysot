@@ -115,9 +115,14 @@ class VideoStreamer:
             self.cap_thread = None
             self.process_thread = None
             self.StopPlay = False
+            # 清空队列
+            while not self.frame_queue.empty():
+                self.frame_queue.get()
+            while not self.result_queue.empty():
+                self.result_queue.get()
             # 清除处理和结果队列
-            self.frame_queue.queue.clear()
-            self.result_queue.queue.clear()
+            # self.frame_queue.queue.clear()
+            # self.result_queue.queue.clear()
             # self.frame_queue.join()
             # self.result_queue.join()
 
@@ -171,10 +176,10 @@ class VideoStreamer:
         # 控制摄像头移动
         controlling = {
             "cameraIndexCode": self.cameraIndexCode,
-            "action": 1,
+            "action": 0,
             "command": "GOTO_PRESET",
             "speed": 4,
-            "presetIndex": 1
+            "presetIndex": 0
         }
         # 发送控制命令
         controlling_api = HikvisionAPI(uapi=self.address,
