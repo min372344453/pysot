@@ -3,18 +3,19 @@
 <head>
     <meta charset="utf-8">
     <title>目标跟踪</title>
-    <style>
-        canvas {
-            border: 1px solid black;
-        }
-    </style>
 </head>
+<style>
+    canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+    }
+</style>
 <body>
-<canvas id="canvas" width="1280" height="720"></canvas>
+<canvas id="canvas" width="1680" height="940" ></canvas>
 <br>
-<button id="track-button">跟踪目标</button>
-<button id="stop-button">停止跟踪</button>
-<button id="stop-video">停止播放</button>
 <script>
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
@@ -23,7 +24,35 @@
     let isDragging = false;
     // 每秒更新一次图像
     let intervalId = null;
+    document.addEventListener('keydown', function(event) {
+        if (event.key === " ") { // 如果按下了空格键
+            StopPlay()
+        } else if (event.key === "Enter") { // 如果按下了回车键
+            StopTracking()
+        }
+    });
 
+    // 偏移计算
+    function OffsetCalculation() {
+        const width = canvas.offsetWidth / 1280;
+        const height = canvas.offsetHeight / 720;
+        rect.x = Math.round(rect.x / width)
+        rect.y =  Math.round(rect.y / height)
+        rect.width =  Math.round(rect.width / width)
+        rect.height =  Math.round(rect.height / height)
+        return rect
+    }
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        // 进行其他操作或重绘画布
+    }
+
+    // 初次加载需要设置canvas宽高
+    resizeCanvas();
+
+    // 监听窗口大小的变化
+    window.addEventListener('resize', resizeCanvas);
 
     canvas.addEventListener('mousedown', function (event) {
         rect.x = event.offsetX;
@@ -47,21 +76,25 @@
             width: rect.width,
             height: rect.height
         };
-        fetch('/StartTracking', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({init_rect: target})
-        })
-            .then(response => response.text())
-            .then(data => {
-                rect = {x: 0, y: 0, width: 0, height: 0};
-                console.log(data);
+        if (rect.x !== 0 && rect.y !== 0 && rect.width !== 0 && rect.height) {
+            let calculation = OffsetCalculation();
+
+            fetch('/StartTracking', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({init_rect: calculation})
             })
-            .catch(error => {
-                console.error(error);
-            });
+                .then(response => response.text())
+                .then(data => {
+                    rect = {x: 0, y: 0, width: 0, height: 0};
+                    console.log(data);
+                })
+                .catch(error => {
+                    console.error(error);
+                });
+        }
     });
 
     function draw() {
@@ -78,78 +111,101 @@
     img.onload = function () {
         draw();
     };
-    const stopVideo = document.getElementById('stop-video');
-    stopVideo.addEventListener('click', function (event) {
+
+    SetCamera("192.168.0.96", "443", "26324374", "Ai2HjDzjn2rtyPzRQRqg", "40f37bb1118049f6b3925cd2c31543ba")
+
+
+    //设置摄像头移动速度
+    SetMovementSpeed(10)
+
+    function SetMovementSpeed(speed) {
+        fetch('/SetMovementSpeed', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({speed: speed})
+        })
+            .then(response => response.text())
+            .then(data => {
+                console.log(data)
+            })
+            .catch(error => {
+                console.error(error);
+            });
+    }
+
+    function StartTracking() {
+        target = {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height
+        };
+        if (rect.x !== 0 && rect.y !== 0 && rect.width !== 0 && rect.height) {
+            let calculation = OffsetCalculation();
+            fetch('/StartTracking', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({init_rect: calculation})
+            })
+                .then(response => response.text())
+                .then(data => {
+                    rect = {x: 0, y: 0, width: 0, height: 0};
+                    console.log(data);
+                })
+                .catch(error => {
+                    console.error(error);
+                });
+            // 每隔一段时间获取当前图像并显示在页面上
+            intervalId = setInterval(function () {
+                img.src = '/video_feed';
+            }, 100);
+        }
+    }
+
+    function SetDisplaySize() {
+        let selZoom = {startX: rect.x, startY: rect.y, endX: rect.x + rect.width, endY: rect.y + rect.height}
+        fetch('/SetDisplaySize', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({selZoom: selZoom})
+        })
+            .then(response => response.text())
+            .then(data => {
+
+                console.log(data);
+            })
+            .catch(error => {
+                console.error(error);
+            });
+    }
+
+    function StopTracking() {
+        fetch('/StopTracking')
+            .then(response => response.json())
+            .then(data => {
+                console.log(data)
+            })
+            .catch(error => console.error(error));
+    }
+
+    function StopPlay() {
         fetch('/StopPlay')
             .then(response => response.json())
             .then(data => {
                 ctx.fillStyle = 'red';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                console.log(data)
+                // 声明变量，获取 setTimeout 的返回值
+                ctx.clearRect(0, 0, canvas.width, canvas.height)
+                // ctx.fillRect(0, 0, canvas.width, canvas.height);
+
             })
             .catch(error => console.error(error));
-    });
-
-    const stopButton = document.getElementById('stop-button');
-    stopButton.addEventListener('click', function (event) {
-        fetch('/StopTracking')
-            .then(response => response.json())
-            .then(data => {
-
-                console.log(data)
-            })
-            .catch(error => console.error(error));
-    });
-
-    const trackButton = document.getElementById('track-button');
-    // trackButton.addEventListener('click', function (event) {
-    //     // 如果没有选择目标，那么不能进行跟踪
-    //
-    //     let selZoom = {startX: rect.x, startY: rect.y, endX: rect.x + rect.width, endY: rect.y + rect.height}
-    //     fetch('/SetDisplaySize', {
-    //         method: 'POST',
-    //         headers: {
-    //             'Content-Type': 'application/json'
-    //         },
-    //         body: JSON.stringify({selZoom: selZoom})
-    //     })
-    //         .then(response => response.text())
-    //         .then(data => {
-    //
-    //             console.log(data);
-    //         })
-    //         .catch(error => {
-    //             console.error(error);
-    //         });
-    //     target = {
-    //         x: rect.x,
-    //         y: rect.y,
-    //         width: rect.width,
-    //         height: rect.height
-    //     };
-    //     fetch('/StartTracking', {
-    //         method: 'POST',
-    //         headers: {
-    //             'Content-Type': 'application/json'
-    //         },
-    //         body: JSON.stringify({init_rect: target})
-    //     })
-    //         .then(response => response.text())
-    //         .then(data => {
-    //             rect = {x: 0, y: 0, width: 0, height: 0};
-    //             console.log(data);
-    //         })
-    //         .catch(error => {
-    //             console.error(error);
-    //         });
-    //     // 每隔一段时间获取当前图像并显示在页面上
-    //     intervalId = setInterval(function () {
-    //         img.src = '/video_feed';
-    //     }, 100);
-    //     // TODO: 添加目标跟踪代码
-    // });
-
-    SetCamera("192.168.0.96", "443", "26324374", "Ai2HjDzjn2rtyPzRQRqg", "40f37bb1118049f6b3925cd2c31543ba")
+    }
 
     function SetCamera(IscHost, IscPort, Appkey, Secret, CameraIndexCode) {
         fetch('/SetCamera', {
@@ -176,22 +232,12 @@
                 console.error(error);
             });
     }
+
     window.onbeforeunload = function () {
-        fetch('/StopTracking')
-            .then(response => response.json())
-            .then(data => {
-                console.log(data)
-            })
-            .catch(error => console.error(error));
-        fetch('/StopPlay')
-            .then(response => response.json())
-            .then(data => {
-                ctx.fillStyle = 'red';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                console.log(data)
-            })
-            .catch(error => console.error(error));
+        StopTracking();
+        StopPlay();
     };
+
 </script>
 </body>
 </html>

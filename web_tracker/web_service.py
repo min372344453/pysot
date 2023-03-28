@@ -1,13 +1,12 @@
 import json
-import os
 import queue
 import threading
 
 import cv2
 import torch
-from flask import Flask, render_template, Response, request
+from flask import Flask, render_template, Response, request, jsonify
 
-import HikvisionAPI
+from HikvisionAPI import HikvisionAPI
 from pysot.core.config import cfg
 from pysot.models.model_builder import ModelBuilder
 from pysot.tracker.tracker_builder import build_tracker
@@ -16,7 +15,6 @@ from pysot.tracker.tracker_builder import build_tracker
 class VideoStreamer:
     def __init__(self, config_file, model_snapshot):
         self.app = Flask(__name__)
-        self.rtsp_url = None
         self.config_file = config_file
         self.model_snapshot = model_snapshot
 
@@ -27,7 +25,6 @@ class VideoStreamer:
         self._build_tracker()
         self.rtsp_url = None
         self.init_rect = None
-        self.img_array = None
         self.last_rect = None
         self.previous = None
         self.StopPlay = True
@@ -37,12 +34,13 @@ class VideoStreamer:
         self.cameraIndexCode = None
         self.init_rect = None
         self.last_rect = None
-        self.frame_queue = queue.Queue()
-        self.result_queue = queue.Queue()
+        self.frame_queue = queue.Queue(maxsize=100)
+        self.result_queue = queue.Queue(maxsize=100)
         self.tracker = None
         self.cap_thread = None
         self.process_thread = None
-        self.sign = 1
+        self.speed = None
+        self.last_feature = None
 
     def _load_config(self):
         cfg.merge_from_file(self.config_file)
@@ -77,10 +75,10 @@ class VideoStreamer:
             endY = data['selZoom']['endY']
             selZoom = {
                 "cameraIndexCode": self.cameraIndexCode,
-                "startX": startX / 2.67,
-                "startY": startY / 1.76,
-                "endX": endX / 2.67,
-                "endY": endY / 1.76
+                "startX": startX / 5,
+                "startY": startY / 2.82,
+                "endX": endX / 5,
+                "endY": endY / 2.82
             }
             # 聚焦
             selZoom = HikvisionAPI(uapi=self.address,
@@ -90,9 +88,9 @@ class VideoStreamer:
                                    data=selZoom)
             zoom_request = selZoom.request()
             if zoom_request.get('code') == '0':
-                return 'Success'
+                return jsonify("True")
             else:
-                return request.get('msg')
+                return "False"
 
         @self.app.route('/StartTracking', methods=['POST'])
         def StartTracking():
@@ -101,47 +99,36 @@ class VideoStreamer:
             print(data['init_rect'])
             # 设置跟踪目标
             self.init_rect = list(data['init_rect'].values())
-            return "Success"
+            return jsonify("True")
 
         @self.app.route('/StopTracking')
         def StopTracking():
             self.init_rect = None
-            # 控制摄像头移动
-            controlling = {
-                "cameraIndexCode": self.cameraIndexCode,
-                "action": 1,
-                "command": "GOTO_PRESET",
-                "speed": 4,
-                "presetIndex": 1
-            }
-
-            # 发送控制命令
-            controlling_api = HikvisionAPI(uapi=self.address,
-                                           appKey=self.appkey,
-                                           appSecret=self.secret,
-                                           headers_url="/artemis/api/video/v1/ptzs/controlling",
-                                           data=controlling)
-            request = controlling_api.request()
+            request = self.stopMove()
             if request.get('code') == '0':
-                return 'Success'
+                return jsonify("True")
             else:
-                return request.get('msg')
+                return jsonify("False")
 
         @self.app.route('/StopPlay')
         def StopPlay():
             self.cap_thread = None
             self.process_thread = None
             self.StopPlay = False
-            # self.process_thread.join()
-            # self.cap_thread.join()
-
-            # 向捕获线程发出停止信号并等待其加入
-            # 向处理线程发出停止并等待其加入的信号
-
             # 清除处理和结果队列
             self.frame_queue.queue.clear()
             self.result_queue.queue.clear()
-            return "Success"
+            # self.frame_queue.join()
+            # self.result_queue.join()
+
+            return jsonify("True")
+
+        @self.app.route('/SetMovementSpeed', methods=['POST'])
+        def SetMovementSpeed():
+            data = request.get_data()
+            data = json.loads(data)
+            self.speed = data['speed']
+            return jsonify("True")
 
         @self.app.route('/SetCamera', methods=['POST'])
         def SetCamera():
@@ -176,9 +163,27 @@ class VideoStreamer:
                 self.cap_thread.start()
                 self.process_thread.start()
             if data.get('code') == '0':
-                return 'Success'
+                return jsonify("True")
             else:
-                return data.get('msg')
+                return jsonify("False")
+
+    def stopMove(self):
+        # 控制摄像头移动
+        controlling = {
+            "cameraIndexCode": self.cameraIndexCode,
+            "action": 1,
+            "command": "GOTO_PRESET",
+            "speed": 4,
+            "presetIndex": 1
+        }
+        # 发送控制命令
+        controlling_api = HikvisionAPI(uapi=self.address,
+                                       appKey=self.appkey,
+                                       appSecret=self.secret,
+                                       headers_url="/artemis/api/video/v1/ptzs/controlling",
+                                       data=controlling)
+        request = controlling_api.request()
+        return request
 
     # 获取目标在屏幕中心时的坐标
     def get_center_coordinate(self, target_coordinate, screen_size):
@@ -215,21 +220,18 @@ class VideoStreamer:
             if self.previous != controlling["command"]:
                 self.previous = controlling["command"]
             else:
-                print('LEFT')
                 return
         elif delta_x >= 0 and abs(delta_x) > abs(delta_y):
             controlling["command"] = "RIGHT"
             if self.previous != controlling["command"]:
                 self.previous = controlling["command"]
             else:
-                print('RIGHT')
                 return
         elif delta_y <= 0 and abs(delta_y) > abs(delta_x):
             controlling["command"] = "UP"
             if self.previous != controlling["command"]:
                 self.previous = controlling["command"]
             else:
-                print('UP')
                 return
         elif delta_y >= 0 and abs(delta_y) > abs(delta_x):
             controlling["command"] = "DOWN"
@@ -237,7 +239,6 @@ class VideoStreamer:
                 self.previous = controlling["command"]
 
             else:
-                print('DOWN')
                 return
         else:
             print("结束了")
@@ -245,7 +246,7 @@ class VideoStreamer:
             self.previous = controlling["action"] = 1
 
         # 调整速度和预置位
-        controlling["speed"] = 18
+        controlling["speed"] = self.speed
         controlling["presetIndex"] = 0
 
         # 发送控制命令
@@ -254,101 +255,80 @@ class VideoStreamer:
                                        appSecret=self.secret,
                                        headers_url="/artemis/api/video/v1/ptzs/controlling",
                                        data=controlling)
-        request = controlling_api.request()
-
-        if request.get('code') == '0':
-            return 'Success'
-        else:
-            return request.get('msg')
+        controlling_api.request()
 
     def _capture_loop(self):
-        # 初始化循环外的视频捕获对象
-        cap = cv2.VideoCapture(self.rtsp_url)
-        while self.StopPlay:
-            # 从视频流中读取帧
-            ret, frame = cap.read()
+        try:
+            cap = cv2.VideoCapture(self.rtsp_url)
+            while self.StopPlay:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                # 将图像大小调整为较小的尺寸
+                frame = cv2.resize(frame, (1280, 720), fx=0.1, fy=0.1)
+                self.frame_queue.put(frame)
 
-            if not ret or not self.StopPlay:
-                break
-
-            # 将图像大小调整为较小的尺寸
-            frame = cv2.resize(frame, (1280, 720), fx=0.1, fy=0.1)
-
-            # 将帧添加到处理队列
-            self.frame_queue.put(frame)
+            cap.release()
+        except Exception as e:
+            print(f'Error in capture loop: {repr(e)}')
 
     def _process_loop(self):
-        self.tracker = build_tracker(self.model)
-        while True:
-            if not self.StopPlay:
-                break
-            # 从处理队列中获取帧
-            frame = self.frame_queue.get()
+        try:
+            self.tracker = build_tracker(self.model)
+            while True:
+                if not self.StopPlay:
+                    break
 
-            if self.init_rect is None:
-                # 没有目标
-                result = (frame, None)
-                self.result_queue.put(result)
-            else:
-                # 目标与上一个目标比较
-                if self.init_rect != self.last_rect:
-                    # 初始化跟踪器
-                    self.tracker.init(frame, self.init_rect)
-                    self.matching(frame)
-                    # 标记目标
-                    self.last_rect = self.init_rect
+                frame = self.frame_queue.get()
+
+                if self.init_rect is None:
+                    result = (frame, None)
+                    self.result_queue.put(result)
                 else:
-                    # 绘制目标框
-                    self.matching(frame)
+                    if self.init_rect != self.last_rect:
+                        self.tracker.init(frame, self.init_rect)
+                    outputs = self.tracker.track(frame)
+                    bbox = list(map(int, outputs['bbox']))
+                    self.automatic_stop(bbox, frame)
+                    cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 0), 1)
+                    result = (frame, bbox)
+                    self.result_queue.put(result)
+                    self.last_rect = self.init_rect
 
-    def matching(self, frame):
-        outputs = self.tracker.track(frame)
-        bbox = list(map(int, outputs['bbox']))
-        cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 0), 2)
-        result = (frame, bbox)
-        self.result_queue.put(result)
-        # 模拟获取目标坐标和屏幕尺寸
-        target_coordinate = (bbox[0] + bbox[2] / 2, bbox[1] + bbox[3] / 2)
-        screen_size = (1280, 720)
+                    # 模拟获取目标坐标和屏幕尺寸
+                    target_coordinate = (bbox[0] + bbox[2] / 2, bbox[1] + bbox[3] / 2)
+                    screen_size = (1280, 720)
 
-        # 移动摄像头到保持目标在屏幕中心
-        self.move_camera_to_center(target_coordinate, screen_size)
+                    # 移动摄像头到保持目标在屏幕中心
+                    self.move_camera_to_center(target_coordinate, screen_size)
+        except Exception as e:
+            print(f'Error in process loop: {repr(e)}')
 
-        # if self.sign == 30:
-        #     wide = 680 / 255
-        #     high = 480 / 255
-        #     startX = math.floor(bbox[0] / wide)
-        #     startY = math.floor(bbox[1] / high)
-        #     endX = math.floor(bbox[2] / wide)
-        #     endY = math.floor(bbox[3] / high)
-        #     print(bbox[0], bbox[1], bbox[2], bbox[3])
-        #     print(startX, startY, endX, endY)
-        #     selZoom = {
-        #         "cameraIndexCode": "40f37bb1118049f6b3925cd2c31543ba",
-        #         "startX": startX,
-        #         "startY": startY,
-        #         "endX": startX + endX,
-        #         "endY": startY + endY
-        #     }
-        #     # 聚焦
-        #     selZoom = HikvisionAPI(uapi='192.168.0.96:443',
-        #                            appKey="26324374",
-        #                            appSecret="Ai2HjDzjn2rtyPzRQRqg",
-        #                            headers_url="/artemis/api/video/v1/ptzs/selZoom",
-        #                            data=selZoom)
-        #     zoom_request = selZoom.request()
-        #     self.sign = 0
-        # self.sign += 1
-        # print(self.sign)
+    def automatic_stop(self, bbox, frame):
+        if bbox[0] < 0:
+            bbox[0] = 0
+            self.init_rect = None
+            self.stopMove()
+        if bbox[1] < 0:
+            bbox[1] = 0
+            self.init_rect = None
+            self.stopMove()
+        if bbox[0] + bbox[2] > frame.shape[1]:
+            bbox[2] = frame.shape[1] - bbox[0]
+            self.init_rect = None
+            self.stopMove()
+        if bbox[1] + bbox[3] > frame.shape[0]:
+            bbox[3] = frame.shape[0] - bbox[1]
+            self.init_rect = None
+            self.stopMove()
 
     def get_frame(self):
         while True:
-            # 从结果队列中获取结果
             frame, bbox = self.result_queue.get()
-            # 将帧转换为 JPEG 编码的字节字符串
+
             ret, jpeg = cv2.imencode('.jpg', frame)
             data = jpeg.tobytes()
-            # 将字节字符串作为响应返回
+
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + data + b'\r\n')
 
@@ -357,8 +337,6 @@ class VideoStreamer:
 
 
 if __name__ == '__main__':
-    current_path = os.getcwd()
-    print(current_path)
-    tracker = VideoStreamer(current_path + "\siamrpn_alex_dwxcorr\config.yaml",
-                            current_path + "\siamrpn_alex_dwxcorr\model.pth")
+    tracker = VideoStreamer("..\experiments\siamrpn_alex_dwxcorr\config.yaml",
+                            "..\experiments\siamrpn_alex_dwxcorr\model.pth")
     tracker.run()
