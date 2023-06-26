@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>目标跟踪</title>
+</head>
+<style>
+    canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+<body>
+<canvas id="canvas" width="2048" height="1536"></canvas>
+<script>
+
+    let target = null;
+    let isDragging = false;
+    // 每秒更新一次图像
+    let intervalId = null;
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    let rect = {x: 0, y: 0, width: 0, height: 0};
+    canvas.addEventListener('mousedown', function (event) {
+        rect.x = event.offsetX;
+        rect.y = event.offsetY;
+        isDragging = true;
+    });
+
+    canvas.addEventListener('mousemove', function (event) {
+        if (isDragging) {
+            // 计算终点坐标和矩形的宽度和高度
+            rect.width = Math.abs(event.offsetX - rect.x);
+            rect.height = Math.abs(event.offsetY - rect.y);
+            rect.x = Math.min(event.offsetX, rect.x);
+            rect.y = Math.min(event.offsetY, rect.y);
+            draw();
+        }
+    });
+
+    canvas.addEventListener('mouseup', function (event) {
+        isDragging = false;
+        // 计算终点坐标和矩形的宽度和高度
+        let endX = event.offsetX;
+        let endY = event.offsetY;
+        rect.width = Math.abs(endX - rect.x);
+        rect.height = Math.abs(endY - rect.y);
+        rect.x = Math.min(endX, rect.x);
+        rect.y = Math.min(endY, rect.y);
+
+        target = {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height
+        };
+        if (rect.width !== 0 && rect.height !== 0) {
+            let calculation = OffsetCalculation();
+            let label = prompt("请输入一个标签：");
+            fetch('/StartTracking', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({init_rect: calculation, label: label, HikvisionKey: HikvisionKey})
+            })
+                .then(response => response.text())
+                .then(data => {
+                    rect = {x: 0, y: 0, width: 0, height: 0};
+                    console.log(data);
+                })
+                .catch(error => {
+                    console.error(error);
+                });
+        }
+    });
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = 'green';
+        ctx.lineWidth = 2;
+        // 绘制矩形
+        if (rect.width && rect.height) {
+            ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+        }
+
+    }
+
+
+    const img = new Image();
+    img.loaded = false;
+    img.onload = function () {
+        img.loaded = true;
+        draw();
+    };
+
+    document.addEventListener('keydown', function (event) {
+        if (event.key === " ") { // 如果按下了空格键
+            StopPlay()
+        } else if (event.key === "Enter") { // 如果按下了回车键
+            StopTracking()
+        }
+    });
+
+    // 偏移计算,1920, 1080 2048, 1536 1920, 1080
+    function OffsetCalculation() {
+        const width = canvas.offsetWidth / 2048;
+        const height = canvas.offsetHeight / 1536;
+        rect.x = Math.round(rect.x / width)
+        rect.y = Math.round(rect.y / height)
+        rect.width = Math.round(rect.width / width)
+        rect.height = Math.round(rect.height / height)
+        return rect
+    }
+
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        // 进行其他操作或重绘画布
+    }
+
+    // 初次加载需要设置canvas宽高
+    resizeCanvas();
+
+    // 监听窗口大小的变化
+    window.addEventListener('resize', resizeCanvas);
+    HikvisionKey = {
+        uapi: "192.168.0.99" + ":443",
+        appKey: "20081214",
+        appSecret: "14FTwMEZ3WHnRIp9jrnc",
+        cameraIndexCode: "43bf566cb4e4417e8e825692df50f68c"
+    }
+    SetCamera("192.168.0.99", "443", "20081214", "14FTwMEZ3WHnRIp9jrnc", "43bf566cb4e4417e8e825692df50f68c")
+    //设置摄像头移动速度
+    SetMovementSpeed(18)
+
+    function SetMovementSpeed(speed) {
+        fetch('/SetMovementSpeed', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({speed: speed})
+        })
+            .then(response => response.text())
+            .then(data => {
+                console.log(data)
+            })
+            .catch(error => {
+                console.error(error);
+            });
+    }
+
+
+    function StopTracking() {
+        fetch('/StopTracking', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(HikvisionKey)
+        })
+            .then(response => response.json())
+            .then(data => {
+                console.log(data)
+            })
+            .catch(error => console.error(error));
+    }
+
+    function StopPlay() {
+        fetch('/StopPlay')
+            .then(response => response.json())
+            .then(data => {
+                ctx.fillStyle = 'red';
+                // 声明变量，获取 setTimeout 的返回值
+                ctx.clearRect(0, 0, canvas.width, canvas.height)
+            })
+            .catch(error => console.error(error));
+    }
+
+    function SetCamera(IscHost, IscPort, Appkey, Secret, CameraIndexCode) {
+        fetch('/SetCamera', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                uapi: IscHost + ":" + IscPort,
+                appKey: Appkey,
+                appSecret: Secret,
+                cameraIndexCode: CameraIndexCode,
+                "streamType": 0,
+                "protocol": "rtsp",
+                "transmode": 0,
+                "expand": "streamform=rtp"
+            })
+        })
+            .then(response => response.text())
+            .then(data => {
+                intervalId = setInterval(function () {
+                    img.src = '/video_feed';
+                }, 1);
+            })
+    }
+
+    window.addEventListener('unload', function (event) {
+        // 在这里编写您希望在页面刷新或关闭时执行的代码
+        StopPlay();
+        console.log('页面即将刷新或关闭');
+    });
+
+
+</script>
+</body>
+</html>
